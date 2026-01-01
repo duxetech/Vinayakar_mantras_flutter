@@ -1,0 +1,1 @@
+sudo: ./scripts/build_and_install.sh: command not found
