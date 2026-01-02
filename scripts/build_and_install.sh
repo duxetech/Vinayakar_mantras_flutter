@@ -8,7 +8,7 @@ adb devices -l
 
 echo "2) Uninstall any existing app packages"
 adb uninstall com.example.vinayagar_mantras || true
-adb uninstall com.karthik.vinayagar_mantras || true
+adb uninstall com.karthik.vinayagar_mantram || true
 
 echo "3) Clean and get packages"
 flutter clean

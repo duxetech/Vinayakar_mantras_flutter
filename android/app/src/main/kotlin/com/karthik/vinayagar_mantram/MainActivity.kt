@@ -1,4 +1,4 @@
-package com.karthik.vinayagar_mantras
+package com.karthik.vinayagar_mantram
 
 import io.flutter.embedding.android.FlutterActivity
 

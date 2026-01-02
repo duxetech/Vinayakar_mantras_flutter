@@ -13,11 +13,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.vinayagar_mantras"
+    namespace = "com.karthik.vinayagar_mantram"
     compileSdk = flutter.compileSdkVersion
 
     defaultConfig {
-        applicationId = "com.example.vinayagar_mantras"
+        applicationId = "com.karthik.vinayagar_mantram"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
