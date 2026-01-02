@@ -1,5 +1,6 @@
-// Chapter Detail Screen with zoom support
+// Chapter Detail Screen with zoom support and TTS
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 import '../models/chapter.dart';
 import '../data/chapters_data.dart';
@@ -23,24 +24,139 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
   Animation<Matrix4>? _animation;
   Offset _doubleTapPosition = Offset.zero;
 
+  // TTS
+  late FlutterTts _flutterTts;
+  bool _isSpeaking = false;
+  bool _isPaused = false;
+  List<String> _chunks = [];
+  List<GlobalKey> _chunkKeys = [];
+  int _currentChunkIndex = 0;
+  double _seekPosition = 0.0;
+
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _initTts();
     _loadContent();
   }
 
   @override
   void dispose() {
+    _flutterTts.stop();
+    _isSpeaking = false;
     _animationController.dispose();
     _scrollController.dispose();
     _transformationController.dispose();
     super.dispose();
   }
 
+  void _initTts() {
+    _flutterTts = FlutterTts();
+    _flutterTts.setLanguage("ta-IN");
+    _flutterTts.setSpeechRate(0.5);
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
+
+    _flutterTts.setCompletionHandler(() {
+      if (_currentChunkIndex < _chunks.length - 1) {
+        _currentChunkIndex++;
+        _seekPosition = _currentChunkIndex / (_chunks.length - 1);
+        if (mounted) setState(() {});
+        _speakCurrentChunk();
+      } else {
+        if (mounted) {
+          setState(() {
+            _isSpeaking = false;
+            _isPaused = false;
+            _currentChunkIndex = 0;
+            _seekPosition = 0.0;
+          });
+        }
+      }
+    });
+
+    _flutterTts.setErrorHandler((msg) {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+          _isPaused = false;
+        });
+      }
+    });
+  }
+
+  String _sanitizeForTts(String text) {
+    // Add pauses for punctuation and remove other symbols
+    String sanitized = text
+        .replaceAll('.', ', ') // Replace dot with pause
+        .replaceAll(':', ', ') // Replace colon with pause
+        .replaceAll(',', ', ') // Normalize comma with pause
+        .replaceAll(RegExp(r'[0-9]'), '') // Remove all digits
+        .replaceAll(RegExp(r'[;!?।॥]'), ', ') // Replace other punctuation with pause
+        .replaceAll(RegExp(r'[\u00B2\u00B3\u2070-\u209F]'), '') // Remove superscripts/subscripts
+        .replaceAll(RegExp(r'[²³⁰¹⁴⁵⁶⁷⁸⁹]'), '') // Remove common superscripts
+        .replaceAll(RegExp(r'[₀₁₂₃₄₅₆₇₈₉]'), '') // Remove subscripts
+        .replaceAll(RegExp(r'[\[\]\(\)\{\}]'), '') // Remove brackets
+        .replaceAll(RegExp(r'[*#@&%$+=/<>|\\~`^_]'), '') // Remove special symbols
+        .replaceAll(RegExp(r'[-−–—]'), '') // Remove dashes and hyphens
+        .replaceAll(RegExp(r'[™®©§¶†‡]'), '') // Remove trademark, copyright, etc
+        .replaceAll(RegExp(r'[""''«»‹›]'), '') // Remove quotes
+        .replaceAll('"', '') // Remove double quotes
+        .replaceAll("'", '') // Remove single quotes
+        .replaceAll(RegExp(r'[…·•]'), '') // Remove ellipsis, bullets
+        .replaceAll(RegExp(r'\s+'), ' ') // Normalize whitespace
+        .trim();
+    return sanitized;
+  }
+
+  void _prepareChunks() {
+    if (widget.chapter.content == null || widget.chapter.content!.isEmpty) return;
+    
+    final content = widget.chapter.content!;
+    final terminators = RegExp(r'[.।॥\n]');
+    final List<String> rawChunks = [];
+    int start = 0;
+    
+    for (final match in terminators.allMatches(content)) {
+      final chunk = content.substring(start, match.end).trim();
+      if (chunk.isNotEmpty) {
+        rawChunks.add(chunk);
+      }
+      start = match.end;
+    }
+    
+    if (start < content.length) {
+      final remaining = content.substring(start).trim();
+      if (remaining.isNotEmpty) {
+        rawChunks.add(remaining);
+      }
+    }
+
+    // Merge very short chunks to avoid choppy playback
+    _chunks = [];
+    String buffer = '';
+    for (final chunk in rawChunks) {
+      if (buffer.isEmpty) {
+        buffer = chunk;
+      } else if (buffer.length < 50) {
+        buffer += ' $chunk';
+      } else {
+        _chunks.add(buffer);
+        buffer = chunk;
+      }
+    }
+    if (buffer.isNotEmpty) {
+      _chunks.add(buffer);
+    }
+
+    _chunkKeys = List.generate(_chunks.length, (_) => GlobalKey());
+  }
+
   Future<void> _loadContent() async {
     try {
       await loadChapterContent(widget.chapter);
+      _prepareChunks();
       if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       if (mounted) {
@@ -48,6 +164,86 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
           _isLoading = false;
           _errorMessage = 'Error loading content: ${e.toString()}';
         });
+      }
+    }
+  }
+
+  void _speakCurrentChunk() async {
+    if (_currentChunkIndex >= _chunks.length) return;
+    
+    final sanitized = _sanitizeForTts(_chunks[_currentChunkIndex]);
+    await _flutterTts.speak(sanitized);
+    
+    // Auto-scroll to current chunk
+    _scrollToChunk(_currentChunkIndex);
+  }
+
+  void _scrollToChunk(int index) {
+    if (index >= _chunkKeys.length) return;
+    final key = _chunkKeys[index];
+    final context = key.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _toggleSpeak() async {
+    if (_isSpeaking) {
+      if (_isPaused) {
+        // Resume
+        await _flutterTts.speak(_sanitizeForTts(_chunks[_currentChunkIndex]));
+        setState(() => _isPaused = false);
+      } else {
+        // Pause
+        await _flutterTts.pause();
+        setState(() => _isPaused = true);
+      }
+    } else {
+      // Start speaking
+      setState(() {
+        _isSpeaking = true;
+        _isPaused = false;
+        _currentChunkIndex = 0;
+        _seekPosition = 0.0;
+      });
+      _speakCurrentChunk();
+    }
+  }
+
+  void _nextChunk() {
+    if (_currentChunkIndex < _chunks.length - 1) {
+      _flutterTts.stop();
+      _currentChunkIndex++;
+      _seekPosition = _currentChunkIndex / (_chunks.length - 1);
+      setState(() {});
+      _speakCurrentChunk();
+    }
+  }
+
+  void _prevChunk() {
+    if (_currentChunkIndex > 0) {
+      _flutterTts.stop();
+      _currentChunkIndex--;
+      _seekPosition = _currentChunkIndex / (_chunks.length - 1);
+      setState(() {});
+      _speakCurrentChunk();
+    }
+  }
+
+  void _onSeekChanged(double value) {
+    final newIndex = (value * (_chunks.length - 1)).round();
+    if (newIndex != _currentChunkIndex) {
+      _flutterTts.stop();
+      _currentChunkIndex = newIndex;
+      _seekPosition = value;
+      setState(() {});
+      if (_isSpeaking && !_isPaused) {
+        _speakCurrentChunk();
       }
     }
   }
@@ -94,26 +290,120 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
                     ),
                   ),
                 )
-              : GestureDetector(
-                  onDoubleTapDown: (d) => _doubleTapPosition = d.localPosition,
-                  onDoubleTap: _handleDoubleTap,
-                  child: InteractiveViewer(
-                    transformationController: _transformationController,
-                    panEnabled: true,
-                    scaleEnabled: true,
-                    minScale: 1.0,
-                    maxScale: 3.0,
-                    boundaryMargin: const EdgeInsets.all(20),
-                    child: SingleChildScrollView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        widget.chapter.content ?? '',
-                        style: const TextStyle(fontSize: 16, height: 1.6),
+              : Stack(
+                  children: [
+                    GestureDetector(
+                      onDoubleTapDown: (d) => _doubleTapPosition = d.localPosition,
+                      onDoubleTap: _handleDoubleTap,
+                      child: InteractiveViewer(
+                        transformationController: _transformationController,
+                        panEnabled: true,
+                        scaleEnabled: true,
+                        minScale: 1.0,
+                        maxScale: 3.0,
+                        boundaryMargin: const EdgeInsets.all(20),
+                        child: SingleChildScrollView(
+                          controller: _scrollController,
+                          padding: EdgeInsets.only(
+                            left: 16,
+                            right: 16,
+                            top: 16,
+                            bottom: _isSpeaking ? 120 : 16,
+                          ),
+                          child: _buildHighlightedText(),
+                        ),
                       ),
                     ),
-                  ),
+                    // Seek bar and controls at bottom
+                    if (_isSpeaking)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.skip_previous),
+                                    onPressed: _currentChunkIndex > 0 ? _prevChunk : null,
+                                  ),
+                                  Expanded(
+                                    child: Slider(
+                                      value: _seekPosition,
+                                      onChanged: _onSeekChanged,
+                                      min: 0.0,
+                                      max: 1.0,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.skip_next),
+                                    onPressed: _currentChunkIndex < _chunks.length - 1 ? _nextChunk : null,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    // FAB above seek bar
+                    if (_isSpeaking)
+                      Positioned(
+                        right: 16,
+                        bottom: 80,
+                        child: FloatingActionButton(
+                          onPressed: _toggleSpeak,
+                          child: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+                        ),
+                      ),
+                  ],
                 ),
+      floatingActionButton: !_isSpeaking
+          ? FloatingActionButton.extended(
+              onPressed: _toggleSpeak,
+              icon: const Icon(Icons.volume_up),
+              label: const Text('Speak'),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildHighlightedText() {
+    if (_chunks.isEmpty) {
+      return Text(
+        widget.chapter.content ?? '',
+        style: const TextStyle(fontSize: 16, height: 1.6),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _chunks.asMap().entries.map((entry) {
+        final index = entry.key;
+        final chunk = entry.value;
+        final isCurrentChunk = _isSpeaking && index == _currentChunkIndex;
+        
+        return Container(
+          key: _chunkKeys[index],
+          decoration: BoxDecoration(
+            color: isCurrentChunk ? Colors.yellow.withAlpha((0.3 * 255).round()) : null,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: isCurrentChunk ? const EdgeInsets.symmetric(horizontal: 4, vertical: 2) : null,
+          child: Text(
+            chunk,
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.6,
+              fontWeight: isCurrentChunk ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
