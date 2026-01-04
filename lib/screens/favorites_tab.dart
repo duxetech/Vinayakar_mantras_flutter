@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 import '../data/chapters_data.dart';
+import '../models/chapter.dart';
 import '../services/favorites_service.dart';
 import 'chapter_detail_screen.dart';
 import 'subchapter_list_screen.dart';
 
-class ChaptersTab extends StatefulWidget {
-  const ChaptersTab({super.key});
+class FavoritesTab extends StatefulWidget {
+  const FavoritesTab({super.key});
 
   @override
-  State<ChaptersTab> createState() => _ChaptersTabState();
+  State<FavoritesTab> createState() => _FavoritesTabState();
 }
 
-class _ChaptersTabState extends State<ChaptersTab> {
+class _FavoritesTabState extends State<FavoritesTab> {
   Set<String> _favorites = {};
 
   @override
@@ -25,26 +26,19 @@ class _ChaptersTabState extends State<ChaptersTab> {
     if (mounted) setState(() => _favorites = favs);
   }
 
-  Future<void> _toggleFavorite(int index) async {
-    final id = chapters[index].id;
-    if (_favorites.contains(id)) {
-      await FavoritesService.removeFavorite(id);
-    } else {
-      await FavoritesService.addFavorite(id);
-    }
-    await _loadFavorites();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: chapters.length,
-      padding: const EdgeInsets.all(8),
-      itemBuilder: (context, index) {
-        final chapter = chapters[index];
-        final id = chapter.id;
-        final isFav = _favorites.contains(id);
+    final items = chapters.where((c) => _favorites.contains(c.id)).toList();
 
+    if (items.isEmpty) {
+      return const Center(child: Text('No favorites yet'));
+    }
+
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final chapter = items[index];
+        final isFav = _favorites.contains(chapter.id);
         return Card(
           elevation: 2,
           margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -76,7 +70,14 @@ class _ChaptersTabState extends State<ChaptersTab> {
                   child: IconButton(
                     key: ValueKey(isFav),
                     icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : null),
-                    onPressed: () => _toggleFavorite(index),
+                    onPressed: () async {
+                      if (isFav) {
+                        await FavoritesService.removeFavorite(chapter.id);
+                      } else {
+                        await FavoritesService.addFavorite(chapter.id);
+                      }
+                      await _loadFavorites();
+                    },
                   ),
                 ),
                 Icon(

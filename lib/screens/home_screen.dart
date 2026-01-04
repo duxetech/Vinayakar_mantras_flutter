@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'chapters_tab.dart';
 import 'audio_tab.dart';
+import 'favorites_tab.dart';
+import '../services/settings_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,11 +13,18 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _showFavoritesOnly = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final val = await SettingsService.getShowFavoritesOnly();
+    if (mounted) setState(() => _showFavoritesOnly = val);
   }
 
   @override
@@ -106,14 +115,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               icon: Icon(Icons.music_note),
               text: 'Audio',
             ),
+            Tab(
+              icon: Icon(Icons.favorite),
+              text: 'Favorites',
+            ),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [
-          ChaptersTab(),
+        children: [
+          const ChaptersTab(),
           AudioTab(),
+          const FavoritesTab(),
         ],
       ),
     );

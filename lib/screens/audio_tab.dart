@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../data/audio_data.dart';
 import '../models/audio_song.dart';
+// No favorites for audio; favorites moved to chapters
+
+// Adds search and favorites support
 
 class AudioTab extends StatefulWidget {
   const AudioTab({super.key});
@@ -17,12 +20,14 @@ class _AudioTabState extends State<AudioTab> {
   bool _isPlaying = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _setupAudioPlayer();
   }
+
 
   void _setupAudioPlayer() {
     // Listen to player state
@@ -130,17 +135,39 @@ class _AudioTabState extends State<AudioTab> {
 
   @override
   Widget build(BuildContext context) {
+    final filtered = audioSongs.where((s) {
+      final q = _searchQuery.trim().toLowerCase();
+      if (q.isEmpty) return true;
+      return s.title.toLowerCase().contains(q);
+    }).toList();
+
     return Column(
       children: [
+        // Search Field
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: 'Search audio... (search by Tamil title)',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onChanged: (v) => setState(() => _searchQuery = v),
+          ),
+        ),
+
+        // No favorites filter for audio
+
         // Song List
         Expanded(
           child: ListView.builder(
-            itemCount: audioSongs.length,
+            itemCount: filtered.length,
             padding: const EdgeInsets.all(8),
             itemBuilder: (context, index) {
-              final song = audioSongs[index];
+              final song = filtered[index];
               final isCurrentSong = _currentSong == song;
               
+
               return Card(
                 elevation: isCurrentSong ? 4 : 2,
                 margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -153,12 +180,8 @@ class _AudioTabState extends State<AudioTab> {
                         ? Theme.of(context).colorScheme.primary
                         : Theme.of(context).colorScheme.primaryContainer,
                     child: Icon(
-                      isCurrentSong && _isPlaying
-                          ? Icons.music_note
-                          : Icons.audiotrack,
-                      color: isCurrentSong
-                          ? Colors.white
-                          : Theme.of(context).colorScheme.onPrimaryContainer,
+                      isCurrentSong && _isPlaying ? Icons.music_note : Icons.audiotrack,
+                      color: isCurrentSong ? Colors.white : Theme.of(context).colorScheme.onPrimaryContainer,
                     ),
                   ),
                   title: Text(
@@ -174,15 +197,19 @@ class _AudioTabState extends State<AudioTab> {
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  trailing: IconButton(
-                    icon: Icon(
-                      isCurrentSong && _isPlaying
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 40,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    onPressed: () => _playSong(song),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                              const SizedBox.shrink(),
+                      IconButton(
+                        icon: Icon(
+                          isCurrentSong && _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                          size: 40,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        onPressed: () => _playSong(song),
+                      ),
+                    ],
                   ),
                   onTap: () => _playSong(song),
                 ),
@@ -191,7 +218,7 @@ class _AudioTabState extends State<AudioTab> {
           ),
         ),
 
-        // Audio Player Controls
+        // Audio Player Controls (unchanged)
         if (_currentSong != null)
           Container(
             decoration: BoxDecoration(

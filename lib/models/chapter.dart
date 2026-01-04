@@ -7,12 +7,14 @@ class Subchapter {
 }
 
 class Chapter {
+  final String id;
   final String title;
   final String assetPath;
   String? content;
   final List<Subchapter>? subchapters;
 
   Chapter({
+    required this.id,
     required this.title,
     required this.assetPath,
     this.content,
