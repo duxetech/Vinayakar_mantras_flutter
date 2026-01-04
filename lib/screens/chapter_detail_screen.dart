@@ -96,7 +96,8 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
         .replaceAll('.', ', ') // Replace dot with pause
         .replaceAll(':', ', ') // Replace colon with pause
         .replaceAll(',', ', ') // Normalize comma with pause
-        .replaceAll(RegExp(r'[0-9]'), '') // Remove all digits
+        // Convert digit groups to spoken whole-number words in Tamil
+        .replaceAllMapped(RegExp(r'\d+'), (m) => _numberToTamilWords(m.group(0)!))
         .replaceAll(RegExp(r'[;!?।॥]'), ', ') // Replace other punctuation with pause
         .replaceAll(RegExp(r'[\u00B2\u00B3\u2070-\u209F]'), '') // Remove superscripts/subscripts
         .replaceAll(RegExp(r'[²³⁰¹⁴⁵⁶⁷⁸⁹]'), '') // Remove common superscripts
@@ -112,6 +113,118 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
         .replaceAll(RegExp(r'\s+'), ' ') // Normalize whitespace
         .trim();
     return sanitized;
+  }
+
+  // Convert integer numeric string (no decimals) into English words.
+  // Handles up to trillions; keeps implementation simple and dependency-free.
+  String _numberToWords(String digits) {
+    try {
+      final n = int.parse(digits);
+      if (n == 0) return ' zero';
+
+      String helper(int num) {
+        const below20 = [
+          '', ' one', ' two', ' three', ' four', ' five', ' six', ' seven', ' eight', ' nine', ' ten', ' eleven', ' twelve', ' thirteen', ' fourteen', ' fifteen', ' sixteen', ' seventeen', ' eighteen', ' nineteen'
+        ];
+        const tens = ['', '', ' twenty', ' thirty', ' forty', ' fifty', ' sixty', ' seventy', ' eighty', ' ninety'];
+
+        if (num < 20) return below20[num];
+        if (num < 100) return tens[num ~/ 10] + (num % 10 != 0 ? below20[num % 10] : '');
+        if (num < 1000) return helper(num ~/ 100) + ' hundred' + (num % 100 != 0 ? helper(num % 100) : '');
+        return '';
+      }
+
+      final parts = <String>[];
+      int remainder = n;
+
+      final trillions = remainder ~/ 1000000000000;
+      if (trillions > 0) {
+        parts.add(helper(trillions) + ' trillion');
+        remainder %= 1000000000000;
+      }
+      final billions = remainder ~/ 1000000000;
+      if (billions > 0) {
+        parts.add(helper(billions) + ' billion');
+        remainder %= 1000000000;
+      }
+      final millions = remainder ~/ 1000000;
+      if (millions > 0) {
+        parts.add(helper(millions) + ' million');
+        remainder %= 1000000;
+      }
+      final thousands = remainder ~/ 1000;
+      if (thousands > 0) {
+        parts.add(helper(thousands) + ' thousand');
+        remainder %= 1000;
+      }
+      if (remainder > 0) {
+        parts.add(helper(remainder));
+      }
+
+      return parts.join(', ');
+    } catch (e) {
+      return digits; // fallback to raw digits on parse error
+    }
+  }
+
+  // Convert English number words produced by _numberToWords into Tamil equivalents.
+  String _numberToTamilWords(String digits) {
+    final eng = _numberToWords(digits).trim();
+    if (eng.isEmpty) return digits;
+
+    final map = <String, String>{
+      'zero': 'பூஜ்ஜியம்',
+      'one': 'ஒன்று',
+      'two': 'இரண்டு',
+      'three': 'மூன்று',
+      'four': 'நான்கு',
+      'five': 'ஐந்து',
+      'six': 'ஆறு',
+      'seven': 'ஏழு',
+      'eight': 'எட்டு',
+      'nine': 'ஒன்பது',
+      'ten': 'பத்து',
+      'eleven': 'பதினொன்று',
+      'twelve': 'பன்னிரண்டு',
+      'thirteen': 'பதினமூன்று',
+      'fourteen': 'பதினாநாறு',
+      'fifteen': 'பதினைந்து',
+      'sixteen': 'பதினாறு',
+      'seventeen': 'பதினேழு',
+      'eighteen': 'பதினெட்டு',
+      'nineteen': 'பத்தொன்பது',
+      'twenty': 'இருபது',
+      'thirty': 'முப்பது',
+      'forty': 'நாற்பது',
+      'fifty': 'அம்பது',
+      'sixty': 'அறுபது',
+      'seventy': 'எழுபது',
+      'eighty': 'எண்பது',
+      'ninety': 'தொண்ணூறு',
+      'hundred': 'நூறு',
+      'thousand': 'ஆயிரம்',
+      'million': 'மில்லியன்',
+      'billion': 'பில்லியன்',
+      'trillion': 'டிரில்லியன்'
+    };
+
+    // Split on spaces and commas, translate tokens where possible
+    final tokens = eng.split(RegExp(r'([,\s])+')).where((t) => t.isNotEmpty).toList();
+    final out = <String>[];
+    for (final t in tokens) {
+      final lower = t.toLowerCase();
+      if (lower == ',') {
+        out.add(',');
+      } else if (map.containsKey(lower)) {
+        out.add(map[lower]!);
+      } else {
+        out.add(t); // fallback
+      }
+    }
+
+    // Join tokens and normalize comma spacing
+    final joined = out.join(' ').replaceAll(' , ', ', ');
+    return ' ' + joined.trim();
   }
 
   void _prepareChunks() {
