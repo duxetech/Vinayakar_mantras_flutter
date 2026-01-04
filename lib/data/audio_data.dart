@@ -4,7 +4,7 @@ import '../models/audio_song.dart';
 // For demo purposes, using placeholder paths
 final List<AudioSong> audioSongs = [
   AudioSong(
-    title: 'Vathapi  - ஷோடச கணபதி கீர்த்தனை',
+    title: 'வாதாபி கணபதிம் - ஷோடச கணபதி கீர்த்தனை',
     assetPath: 'assets/audio/Vathapi.mp3',
     duration: '3:45',
   ),

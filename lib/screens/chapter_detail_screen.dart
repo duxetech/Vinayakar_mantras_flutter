@@ -7,7 +7,8 @@ import '../data/chapters_data.dart';
 
 class ChapterDetailScreen extends StatefulWidget {
   final Chapter chapter;
-  const ChapterDetailScreen({super.key, required this.chapter});
+  final Subchapter? initialSubchapter;
+  const ChapterDetailScreen({super.key, required this.chapter, this.initialSubchapter});
 
   @override
   State<ChapterDetailScreen> createState() => _ChapterDetailScreenState();
@@ -32,6 +33,9 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
   List<GlobalKey> _chunkKeys = [];
   int _currentChunkIndex = 0;
   double _seekPosition = 0.0;
+  // Track chunk offsets inside the original content for jump-to-subchapter
+  final List<int> _chunkStarts = [];
+  final List<int> _chunkEnds = [];
 
   @override
   void initState() {
@@ -113,44 +117,169 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
   void _prepareChunks() {
     if (widget.chapter.content == null || widget.chapter.content!.isEmpty) return;
     
-    final content = widget.chapter.content!;
-    final terminators = RegExp(r'[.।॥\n]');
-    final List<String> rawChunks = [];
-    int start = 0;
+    String content = widget.chapter.content!;
     
+    // If a subchapter is selected, filter to show only that section
+    if (widget.initialSubchapter != null) {
+      final sub = widget.initialSubchapter!;
+      final allLines = content.split('\n');
+
+      if (sub.startLine != null) {
+        // old numeric-range based slicing (1-based in data)
+        final start = sub.startLine! - 1; // Convert to 0-based index
+        final end = sub.endLine ?? allLines.length; // Use endLine if available
+        final filteredLines = allLines.sublist(
+          start.clamp(0, allLines.length),
+          end.clamp(0, allLines.length),
+        );
+        content = filteredLines.join('\n');
+      } else {
+        // runtime heading detection: find the line that contains the subchapter title
+        final headingPattern = RegExp(r'^\s*பகுதி\b', unicode: true);
+        int headingLine = -1;
+        for (int i = 0; i < allLines.length; i++) {
+          final t = allLines[i].trim();
+          if (t == sub.title || t.startsWith(sub.title)) {
+            headingLine = i;
+            break;
+          }
+        }
+
+        if (headingLine == -1) {
+          // fallback: search for the title anywhere in content
+          final idx = content.indexOf(sub.title);
+          if (idx != -1) {
+            // find the line number containing idx
+            int acc = 0;
+            for (int i = 0; i < allLines.length; i++) {
+              acc += allLines[i].length + 1; // +1 for '\n'
+              if (acc > idx) {
+                headingLine = i;
+                break;
+              }
+            }
+          }
+        }
+
+        if (headingLine != -1) {
+          // find next heading line
+          int nextHeading = allLines.length;
+          for (int j = headingLine + 1; j < allLines.length; j++) {
+            if (headingPattern.hasMatch(allLines[j].trim()) || allLines[j].trim().startsWith('பகுதி')) {
+              nextHeading = j;
+              break;
+            }
+          }
+
+          final filteredLines = allLines.sublist(headingLine, nextHeading);
+          content = filteredLines.join('\n');
+        } else {
+          // couldn't detect heading — leave full content
+        }
+      }
+    }
+    
+    final terminators = RegExp(r'[.।॥\n]');
+
+    // Collect raw chunks with offsets (preserve offsets in the original content)
+    final List<Map<String, int>> rawMeta = [];
+    final List<String> rawTexts = [];
+    int start = 0;
     for (final match in terminators.allMatches(content)) {
-      final chunk = content.substring(start, match.end).trim();
-      if (chunk.isNotEmpty) {
-        rawChunks.add(chunk);
+      final raw = content.substring(start, match.end);
+      if (raw.trim().isNotEmpty) {
+        rawTexts.add(raw);
+        rawMeta.add({'start': start, 'end': match.end});
       }
       start = match.end;
     }
-    
     if (start < content.length) {
-      final remaining = content.substring(start).trim();
-      if (remaining.isNotEmpty) {
-        rawChunks.add(remaining);
+      final raw = content.substring(start);
+      if (raw.trim().isNotEmpty) {
+        rawTexts.add(raw);
+        rawMeta.add({'start': start, 'end': content.length});
       }
     }
 
-    // Merge very short chunks to avoid choppy playback
+    // Merge very short raw chunks to avoid choppy playback, and compute start/end offsets
     _chunks = [];
+    _chunkStarts.clear();
+    _chunkEnds.clear();
+    _chunkKeys = [];
+
     String buffer = '';
-    for (final chunk in rawChunks) {
+    int bufferStart = -1;
+    int bufferEnd = -1;
+    for (int i = 0; i < rawTexts.length; i++) {
+      final txt = rawTexts[i];
+      final meta = rawMeta[i];
       if (buffer.isEmpty) {
-        buffer = chunk;
+        buffer = txt;
+        bufferStart = meta['start']!;
+        bufferEnd = meta['end']!;
       } else if (buffer.length < 50) {
-        buffer += ' $chunk';
+        buffer += ' ' + txt.trim();
+        bufferEnd = meta['end']!;
       } else {
-        _chunks.add(buffer);
-        buffer = chunk;
+        final merged = buffer.trim();
+        _chunks.add(merged);
+        _chunkStarts.add(bufferStart);
+        _chunkEnds.add(bufferEnd);
+        _chunkKeys.add(GlobalKey());
+
+        buffer = txt;
+        bufferStart = meta['start']!;
+        bufferEnd = meta['end']!;
       }
     }
     if (buffer.isNotEmpty) {
-      _chunks.add(buffer);
+      final merged = buffer.trim();
+      _chunks.add(merged);
+      _chunkStarts.add(bufferStart);
+      _chunkEnds.add(bufferEnd);
+      _chunkKeys.add(GlobalKey());
+    }
+  }
+
+  void _onSubchapterSelected(Subchapter sub) {
+    if (widget.chapter.content == null) return;
+    final content = widget.chapter.content!;
+    final pos = content.indexOf(sub.title);
+    int targetIndex = -1;
+    if (pos != -1) {
+      for (int i = 0; i < _chunkStarts.length; i++) {
+        final s = _chunkStarts[i];
+        final e = _chunkEnds[i];
+        if (pos >= s && pos < e) {
+          targetIndex = i;
+          break;
+        }
+      }
     }
 
-    _chunkKeys = List.generate(_chunks.length, (_) => GlobalKey());
+    // Fallback: try to match the title inside chunk texts
+    if (targetIndex == -1) {
+      for (int i = 0; i < _chunks.length; i++) {
+        if (_chunks[i].contains(sub.title)) {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (targetIndex != -1) {
+      _flutterTts.stop();
+      _currentChunkIndex = targetIndex;
+      _seekPosition = _chunks.isNotEmpty ? _currentChunkIndex / (_chunks.length - 1) : 0.0;
+      setState(() {});
+      _scrollToChunk(_currentChunkIndex);
+      if (_isSpeaking && !_isPaused) {
+        _speakCurrentChunk();
+      }
+    } else {
+      // Couldn't find exact match — just scroll to top
+      if (_chunkKeys.isNotEmpty) Scrollable.ensureVisible(_chunkKeys.first.currentContext!, duration: const Duration(milliseconds: 300));
+    }
   }
 
   Future<void> _loadContent() async {
@@ -158,6 +287,13 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
       await loadChapterContent(widget.chapter);
       _prepareChunks();
       if (mounted) setState(() => _isLoading = false);
+      
+      // Auto-jump to initialSubchapter if provided
+      if (widget.initialSubchapter != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _onSubchapterSelected(widget.initialSubchapter!);
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -275,7 +411,20 @@ class _ChapterDetailScreenState extends State<ChapterDetailScreen> with SingleTi
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.chapter.title),
+        title: Row(
+          children: [
+            Expanded(child: Text(widget.chapter.title)),
+            if (widget.chapter.subchapters != null && widget.chapter.subchapters!.isNotEmpty)
+              PopupMenuButton<Subchapter>(
+                tooltip: 'Select Subchapter',
+                icon: const Icon(Icons.list),
+                onSelected: (s) => _onSubchapterSelected(s),
+                itemBuilder: (context) => widget.chapter.subchapters!
+                    .map((s) => PopupMenuItem<Subchapter>(value: s, child: Text(s.title)))
+                    .toList(),
+              ),
+          ],
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

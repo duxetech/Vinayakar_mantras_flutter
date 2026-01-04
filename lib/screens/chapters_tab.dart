@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/chapters_data.dart';
 import 'chapter_detail_screen.dart';
+import 'subchapter_list_screen.dart';
 
 class ChaptersTab extends StatelessWidget {
   const ChaptersTab({super.key});
@@ -39,12 +40,21 @@ class ChaptersTab extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
             ),
             onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ChapterDetailScreen(chapter: chapter),
-                ),
-              );
+              if (chapter.subchapters != null && chapter.subchapters!.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SubchapterListScreen(chapter: chapter),
+                  ),
+                );
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChapterDetailScreen(chapter: chapter),
+                  ),
+                );
+              }
             },
           ),
         );
